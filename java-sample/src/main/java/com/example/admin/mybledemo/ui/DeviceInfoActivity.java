@@ -13,6 +13,11 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import android.util.Log;
 import android.view.MenuItem;
+import android.view.View;
+import android.widget.FrameLayout;
+import android.widget.TextView;
+
+import androidx.core.content.ContextCompat;
 
 import com.example.admin.mybledemo.R;
 import com.example.admin.mybledemo.Utils;
@@ -38,6 +43,9 @@ public class DeviceInfoActivity extends AppCompatActivity {
     private RecyclerView recyclerView;
     private DeviceInfoAdapter adapter;
     private List<BluetoothGattService> gattServices;
+    private TextView tvServices;
+    private TextView tvControl;
+    private FrameLayout controlContainer;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -67,6 +75,44 @@ public class DeviceInfoActivity extends AppCompatActivity {
         recyclerView.getItemAnimator().setChangeDuration(300);
         recyclerView.getItemAnimator().setMoveDuration(300);
         recyclerView.setAdapter(adapter);
+
+        tvServices = findViewById(R.id.tv_services);
+        tvControl = findViewById(R.id.tv_control);
+        controlContainer = findViewById(R.id.control_container);
+
+        tvServices.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                switchPage(true);
+            }
+        });
+        tvControl.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                switchPage(false);
+            }
+        });
+        // 默认选中 Services 页面
+        switchPage(true);
+    }
+
+    /**
+     * 切换 Services / Control 页面，并高亮当前选中的文本
+     *
+     * @param showServices true 显示 Services 列表，false 显示 Control 空白页
+     */
+    private void switchPage(boolean showServices) {
+        if (showServices) {
+            recyclerView.setVisibility(View.VISIBLE);
+            controlContainer.setVisibility(View.GONE);
+            tvServices.setTextColor(ContextCompat.getColor(this, R.color.tab_selected));
+            tvControl.setTextColor(ContextCompat.getColor(this, R.color.tab_unselected));
+        } else {
+            controlContainer.setVisibility(View.VISIBLE);
+            recyclerView.setVisibility(View.GONE);
+            tvControl.setTextColor(ContextCompat.getColor(this, R.color.tab_selected));
+            tvServices.setTextColor(ContextCompat.getColor(this, R.color.tab_unselected));
+        }
     }
 
     private BleConnectCallback<BleDevice> connectCallback = new BleConnectCallback<BleDevice>() {

@@ -19,6 +19,9 @@
     <color name="text">#909090</color>
     <color name="text_gray">#303030</color>
 
+    <color name="tab_selected">@color/colorAccent</color>
+    <color name="tab_unselected">@color/text</color>
+
     <color name="colorPrimaryBlack">#000000</color>
     <color name="colorPrimaryDarkBlack">#000000</color>
     <color name="colorAccentBlack">#ffffff</color>
