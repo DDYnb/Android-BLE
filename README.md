@@ -1,7 +1,4 @@
-### QQ技术交流群：一群：494309361（已满）  二群：419784672
-
-### [下载APK](https://github.com/aicareles/Android-BLE/blob/master/apk/BLE-v3.3.0.apk)
-
+### FORK FROM https://github.com/aicareles/Android-BLE
 
 # Android-BLE
 [![License](https://img.shields.io/badge/license-Apache%202-green.svg)](https://www.apache.org/licenses/LICENSE-2.0)
@@ -273,19 +270,10 @@ ble.cancelCallback(scanCallback);
  ble.released();
 ```
 
-## 历史版本介绍：
-[历史版本](https://github.com/aicareles/Android-BLE/wiki/BLE%E5%BA%93%E5%8E%86%E5%8F%B2%E7%89%88%E6%9C%AC%E4%BB%8B%E7%BB%8D)
-
 ## BLE蓝牙常见问题及解决方案
 请通过该 [Wiki BLE Page][Wiki] 了解更多信息.
 
 [Wiki]:https://github.com/aicareles/Android-BLE/wiki#连接常见问题
-
-## Java-Sample Screenshot：
-
-![2](https://github.com/aicareles/Android-BLE/blob/master/screenshots/2.jpeg)
-![3](https://github.com/aicareles/Android-BLE/blob/master/screenshots/3.jpeg)
-![4](https://github.com/aicareles/Android-BLE/blob/master/screenshots/4.jpeg)
 
 ## *License*
 ```
@@ -303,47 +291,3 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ```
-
-## Contribute：
-![](https://upload-images.jianshu.io/upload_images/3884117-5d22ae84180a93ed.jpg?imageMogr2/auto-orient/strip%7CimageView2/2/w/320)
-![](https://upload-images.jianshu.io/upload_images/3884117-1f6c1c0fb5885252.jpg?imageMogr2/auto-orient/strip%7CimageView2/2/w/320)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
