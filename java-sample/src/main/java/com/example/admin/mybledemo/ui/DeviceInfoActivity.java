@@ -121,12 +121,12 @@ public class DeviceInfoActivity extends AppCompatActivity {
         if (showServices) {
             recyclerView.setVisibility(View.VISIBLE);
             controlContainer.setVisibility(View.GONE);
-            tvServices.setTextColor(ContextCompat.getColor(this, R.color.tab_selected));
+            tvServices.setTextColor(ContextCompat.getColor(this, R.color.colorPrimary));
             tvControl.setTextColor(ContextCompat.getColor(this, R.color.tab_unselected));
         } else {
             controlContainer.setVisibility(View.VISIBLE);
             recyclerView.setVisibility(View.GONE);
-            tvControl.setTextColor(ContextCompat.getColor(this, R.color.tab_selected));
+            tvControl.setTextColor(ContextCompat.getColor(this, R.color.colorPrimary));
             tvServices.setTextColor(ContextCompat.getColor(this, R.color.tab_unselected));
         }
     }
@@ -136,9 +136,33 @@ public class DeviceInfoActivity extends AppCompatActivity {
      */
     private void addControlLog(String log) {
         controlLogs.add(log);
-        controlLogAdapter.notifyDataSetChanged();
+        controlLogAdapter.notifyItemInserted(controlLogs.size() - 1);
         controlRecyclerView.scrollToPosition(controlLogs.size() - 1);
     }
+
+    private BleNotifyCallback<BleDevice> notifyCallback = new BleNotifyCallback<BleDevice>() {
+        @Override
+        public void onChanged(BleDevice device, BluetoothGattCharacteristic characteristic) {
+            // 只记录当前页面设备的原始数据
+            if (bleDevice != null && !device.getBleAddress().equals(bleDevice.getBleAddress())) return;
+            UUID uuid = characteristic.getUuid();
+            BleLog.e(TAG, "onChanged==uuid:" + uuid.toString());
+            BleLog.e(TAG, "onChanged==data:" + ByteUtils.toHexString(characteristic.getValue()));
+            final String log = dateFormat.format(new Date()) + " -> " + ByteUtils.toHexString(characteristic.getValue());
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    addControlLog(log);
+                }
+            });
+        }
+
+        @Override
+        public void onNotifySuccess(BleDevice device) {
+            super.onNotifySuccess(device);
+            BleLog.e(TAG, "onNotifySuccess: " + device.getBleName());
+        }
+    };
 
     private BleConnectCallback<BleDevice> connectCallback = new BleConnectCallback<BleDevice>() {
         @Override
@@ -178,43 +202,35 @@ public class DeviceInfoActivity extends AppCompatActivity {
                 }
             });
 
+            // 遍历设备所有 service/characteristic，逐个使能 notify/indicate 特征的通知，
+            // 以接收任意蓝牙设备上报的全部原始数据（不依赖 MyApplication 中配置的 service uuid）
+            for (BluetoothGattService service : gatt.getServices()) {
+                for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
+                    int properties = characteristic.getProperties();
+                    if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
+                            || (properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) {
+                        ble.enableNotifyByUuid(device, true, service.getUuid(), characteristic.getUuid(), notifyCallback);
+                    }
+                }
+            }
         }
 
         @Override
         public void onReady(BleDevice device) {
             super.onReady(device);
-            //连接成功后，设置通知
-            ble.enableNotify(device, true, new BleNotifyCallback<BleDevice>() {
-                @Override
-                public void onChanged(BleDevice device, BluetoothGattCharacteristic characteristic) {
-                    // 只记录当前页面设备的原始数据
-                    if (bleDevice != null && !device.getBleAddress().equals(bleDevice.getBleAddress())) return;
-                    UUID uuid = characteristic.getUuid();
-                    BleLog.e(TAG, "onChanged==uuid:" + uuid.toString());
-                    BleLog.e(TAG, "onChanged==data:" + ByteUtils.toHexString(characteristic.getValue()));
-                    final String log = dateFormat.format(new Date()) + " -> " + ByteUtils.toHexString(characteristic.getValue());
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            Utils.showToast(String.format("收到设备通知数据: %s", ByteUtils.toHexString(characteristic.getValue())));
-                            addControlLog(log);
-                        }
-                    });
-                }
-
-                @Override
-                public void onNotifySuccess(BleDevice device) {
-                    super.onNotifySuccess(device);
-                    BleLog.e(TAG, "onNotifySuccess: "+device.getBleName());
-                }
-            });
+            // 通知使能已移至 onServicesDiscovered 中按 UUID 逐个开启
             ble.read(device, new BleReadCallback<BleDevice>() {
                 @Override
                 public void onReadSuccess(BleDevice bleDevice, BluetoothGattCharacteristic characteristic) {
                     // 只记录当前页面设备的原始数据
                     if (bleDevice != null && !device.getBleAddress().equals(bleDevice.getBleAddress())) return;
                     final String log = dateFormat.format(new Date()) + " -> " + ByteUtils.toHexString(characteristic.getValue());
-                    addControlLog(log);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            addControlLog(log);
+                        }
+                    });
                     byte[] data = characteristic.getValue();
                     BleLog.w(TAG, "onReadSuccess: " + Arrays.toString(data));
                 }
