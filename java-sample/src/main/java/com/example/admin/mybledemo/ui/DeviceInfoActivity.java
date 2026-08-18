@@ -14,10 +14,15 @@ import androidx.recyclerview.widget.RecyclerView;
 import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import androidx.core.content.ContextCompat;
+
+import java.io.UnsupportedEncodingException;
 
 import com.example.admin.mybledemo.R;
 import com.example.admin.mybledemo.Utils;
@@ -36,6 +41,7 @@ import cn.com.heaton.blelibrary.ble.BleLog;
 import cn.com.heaton.blelibrary.ble.callback.BleConnectCallback;
 import cn.com.heaton.blelibrary.ble.callback.BleNotifyCallback;
 import cn.com.heaton.blelibrary.ble.callback.BleReadCallback;
+import cn.com.heaton.blelibrary.ble.callback.BleWriteCallback;
 import cn.com.heaton.blelibrary.ble.model.BleDevice;
 import cn.com.heaton.blelibrary.ble.utils.ByteUtils;
 
@@ -43,6 +49,8 @@ public class DeviceInfoActivity extends AppCompatActivity {
 
     private static final String TAG = "DeviceInfoActivity";
     public static final String EXTRA_TAG = "device";
+    /** 优先发送目标：fff2 Write Without Response 特征 */
+    private static final UUID FFF2_UUID = UUID.fromString("0000fff2-0000-1000-8000-00805f9b34fb");
     private BleDevice bleDevice;
     private Ble<BleDevice> ble;
     private ActionBar actionBar;
@@ -56,6 +64,15 @@ public class DeviceInfoActivity extends AppCompatActivity {
     private ControlLogAdapter controlLogAdapter;
     private List<String> controlLogs;
     private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
+    private Button btnAaa;
+    private Button btn123;
+    private CheckBox cbHex;
+    private TextView tvHexLabel;
+    private EditText etSend;
+    private Button btnSend;
+    private UUID writeServiceUuid;
+    private UUID writeCharacteristicUuid;
+
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -108,6 +125,38 @@ public class DeviceInfoActivity extends AppCompatActivity {
                 switchPage(false);
             }
         });
+
+        btnAaa = findViewById(R.id.btn_aaa);
+        btn123 = findViewById(R.id.btn_123);
+        cbHex = findViewById(R.id.cb_hex);
+        tvHexLabel = findViewById(R.id.tv_hex_label);
+        etSend = findViewById(R.id.et_send);
+        btnSend = findViewById(R.id.btn_send);
+
+        btnAaa.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                sendData("AAA");
+            }
+        });
+        btn123.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                sendData("123");
+            }
+        });
+        btnSend.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                sendData(etSend.getText().toString());
+            }
+        });
+        tvHexLabel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                cbHex.toggle();
+            }
+        });
         // 默认选中 Services 页面
         switchPage(true);
     }
@@ -140,6 +189,63 @@ public class DeviceInfoActivity extends AppCompatActivity {
         controlRecyclerView.scrollToPosition(controlLogs.size() - 1);
     }
 
+    /**
+     * 发送数据到当前连接的蓝牙设备：
+     * 勾选 16 进制时按 hex 解析内容，否则按 UTF-8 编码发送
+     */
+    private void sendData(String content) {
+        if (bleDevice == null || !bleDevice.isConnected()) {
+            Utils.showToast("设备未连接");
+            return;
+        }
+        if (writeCharacteristicUuid == null) {
+            Utils.showToast("设备无可写特征，无法发送");
+            return;
+        }
+        byte[] bytes;
+//        if (cbHex.isChecked()) {
+//            // 清理 0x/空格/冒号/逗号分隔符
+//            String hex = content.replaceAll("(?i)0x", "").replaceAll("[\\s:，,]", "");
+//            if (hex.isEmpty()) {
+//                Utils.showToast("请输入要发送的数据");
+//                return;
+//            }
+//            if ((hex.length() & 1) != 0) {
+//                hex = "0" + hex;// 奇数长度前补 0
+//            }
+//            try {
+//                bytes = ByteUtils.hexStr2Bytes(hex);
+//            } catch (Exception e) {
+//                Utils.showToast("无效的16进制数据");
+//                return;
+//            }
+//        } else {
+            try {
+                bytes = content.getBytes("UTF-8");
+            } catch (UnsupportedEncodingException e) {
+                bytes = content.getBytes();
+            }
+//        }
+        boolean result = ble.writeByUuid(bleDevice, bytes, writeServiceUuid, writeCharacteristicUuid, writeCallback);
+        if (!result) {
+            Utils.showToast("发送失败：特征不可写或设备异常");
+        }
+    }
+
+    private BleWriteCallback<BleDevice> writeCallback = new BleWriteCallback<BleDevice>() {
+        @Override
+        public void onWriteSuccess(BleDevice device, BluetoothGattCharacteristic characteristic) {
+            BleLog.e(TAG, "onWriteSuccess: " + device.getBleName());
+            Utils.showToast("发送成功");
+        }
+
+        @Override
+        public void onWriteFailed(BleDevice device, int failedCode) {
+            super.onWriteFailed(device, failedCode);
+            Utils.showToast("发送失败，错误码:" + failedCode);
+        }
+    };
+
     private BleNotifyCallback<BleDevice> notifyCallback = new BleNotifyCallback<BleDevice>() {
         @Override
         public void onChanged(BleDevice device, BluetoothGattCharacteristic characteristic) {
@@ -148,10 +254,15 @@ public class DeviceInfoActivity extends AppCompatActivity {
             UUID uuid = characteristic.getUuid();
             BleLog.e(TAG, "onChanged==uuid:" + uuid.toString());
             BleLog.e(TAG, "onChanged==data:" + ByteUtils.toHexString(characteristic.getValue()));
-            final String log = dateFormat.format(new Date()) + " -> " + ByteUtils.toHexString(characteristic.getValue());
+            final byte[] value = characteristic.getValue();
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
+                    // 勾选 16 进制显示原始 hex 内容，否则显示 utf-8 字符串
+                    String data = cbHex.isChecked()
+                            ? ByteUtils.toHexString(value)
+                            : ByteUtils.toString(value, "UTF-8");
+                    final String log = dateFormat.format(new Date()) + " -> " + data;
                     addControlLog(log);
                 }
             });
@@ -211,6 +322,39 @@ public class DeviceInfoActivity extends AppCompatActivity {
                             || (properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) {
                         ble.enableNotifyByUuid(device, true, service.getUuid(), characteristic.getUuid(), notifyCallback);
                     }
+                }
+            }
+
+            // 优先查找 fff2 Write Without Response 特征作为发送目标
+            if (writeCharacteristicUuid == null) {
+                for (BluetoothGattService service : gatt.getServices()) {
+                    for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
+                        if (FFF2_UUID.equals(characteristic.getUuid())) {
+                            int properties = characteristic.getProperties();
+                            if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0
+                                    || (properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
+                                writeServiceUuid = service.getUuid();
+                                writeCharacteristicUuid = characteristic.getUuid();
+                                break;
+                            }
+                        }
+                    }
+                    if (writeCharacteristicUuid != null) break;
+                }
+            }
+            // 回退：记录第一个可写特征，供发送功能使用（不依赖 MyApplication 中配置的写特征 uuid）
+            if (writeCharacteristicUuid == null) {
+                for (BluetoothGattService service : gatt.getServices()) {
+                    for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
+                        int properties = characteristic.getProperties();
+                        if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0
+                                || (properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
+                            writeServiceUuid = service.getUuid();
+                            writeCharacteristicUuid = characteristic.getUuid();
+                            break;
+                        }
+                    }
+                    if (writeCharacteristicUuid != null) break;
                 }
             }
         }

@@ -527,6 +527,10 @@ public final class BleRequestImpl<T extends BleDevice> {
         BluetoothGattCharacteristic characteristic = gattCharacteristic(bluetoothGatt, serviceUUID, characteristicUUID);
         if (characteristic != null) {
             characteristic.setValue(value);
+            // Write Without Response 特征需使用无响应写类型，否则部分设备会写入失败
+            if ((characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
+                characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
+            }
             boolean result = bluetoothGatt.writeCharacteristic(characteristic);
             BleLog.d(TAG, address + " -- write result:" + result);
             return result;
