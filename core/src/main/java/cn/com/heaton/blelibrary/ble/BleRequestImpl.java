@@ -246,6 +246,10 @@ public final class BleRequestImpl<T extends BleDevice> {
                     if (null != descWrapperCallback){
                         descWrapperCallback.onDescWriteFailed(bleDevice, status);
                     }
+                    // 通知使能 descriptor 写入失败，通知上层继续后续特征使能
+                    if (notifyWrapperCallback != null){
+                        notifyWrapperCallback.onNotifyFailed(bleDevice, status);
+                    }
                 }
             }
         }

@@ -70,8 +70,10 @@ public class DeviceInfoActivity extends AppCompatActivity {
     private TextView tvHexLabel;
     private EditText etSend;
     private Button btnSend;
-    private UUID writeServiceUuid;
-    private UUID writeCharacteristicUuid;
+    /** 发送目标特征列表：优先 fff2，回退时包含所有可写特征 */
+    private final List<WriteTarget> writeTargets = new ArrayList<>();
+    /** 待串行使能通知的特征队列 */
+    private final List<BluetoothGattCharacteristic> pendingNotifyChars = new ArrayList<>();
 
 
     @Override
@@ -162,6 +164,51 @@ public class DeviceInfoActivity extends AppCompatActivity {
     }
 
     /**
+     * 发送目标：一个可写特征（service UUID + characteristic UUID）
+     */
+    private static class WriteTarget {
+        final UUID serviceUuid;
+        final UUID characteristicUuid;
+
+        WriteTarget(UUID serviceUuid, UUID characteristicUuid) {
+            this.serviceUuid = serviceUuid;
+            this.characteristicUuid = characteristicUuid;
+        }
+    }
+
+    /**
+     * 收集可写特征作为发送目标（不依赖 MyApplication 中配置的写特征 uuid）
+     *
+     * @param gatt     已连接的 gatt 对象
+     * @param onlyUuid 仅收集指定 UUID 的特征；null 表示收集全部可写特征
+     */
+    private void collectWriteTargets(BluetoothGatt gatt, UUID onlyUuid) {
+        for (BluetoothGattService service : gatt.getServices()) {
+            for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
+                int properties = characteristic.getProperties();
+                boolean writable = (properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0
+                        || (properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0;
+                if (writable && (onlyUuid == null || onlyUuid.equals(characteristic.getUuid()))) {
+                    writeTargets.add(new WriteTarget(service.getUuid(), characteristic.getUuid()));
+                }
+            }
+        }
+    }
+
+    /**
+     * 串行使能下一个特征的通知：一次只发起一个 writeDescriptor，
+     * 避免多个通知特征并发写 CCCD 导致写入失败（Android 不允许并发 GATT 操作）
+     */
+    private void enableNextNotify(BleDevice device) {
+        if (pendingNotifyChars.isEmpty()) return;
+        BluetoothGattCharacteristic characteristic = pendingNotifyChars.remove(0);
+        ble.enableNotifyByUuid(device, true,
+                characteristic.getService().getUuid(),
+                characteristic.getUuid(),
+                notifyCallback);
+    }
+
+    /**
      * 切换 Services / Control 页面，并高亮当前选中的文本
      *
      * @param showServices true 显示 Services 列表，false 显示 Control 空白页
@@ -198,7 +245,7 @@ public class DeviceInfoActivity extends AppCompatActivity {
             Utils.showToast("设备未连接");
             return;
         }
-        if (writeCharacteristicUuid == null) {
+        if (writeTargets.isEmpty()) {
             Utils.showToast("设备无可写特征，无法发送");
             return;
         }
@@ -226,8 +273,12 @@ public class DeviceInfoActivity extends AppCompatActivity {
                 bytes = content.getBytes();
             }
 //        }
-        boolean result = ble.writeByUuid(bleDevice, bytes, writeServiceUuid, writeCharacteristicUuid, writeCallback);
-        if (!result) {
+        boolean allFailed = true;
+        for (WriteTarget target : writeTargets) {
+            boolean result = ble.writeByUuid(bleDevice, bytes, target.serviceUuid, target.characteristicUuid, writeCallback);
+            if (result) allFailed = false;
+        }
+        if (allFailed) {
             Utils.showToast("发送失败：特征不可写或设备异常");
         }
     }
@@ -272,6 +323,14 @@ public class DeviceInfoActivity extends AppCompatActivity {
         public void onNotifySuccess(BleDevice device) {
             super.onNotifySuccess(device);
             BleLog.e(TAG, "onNotifySuccess: " + device.getBleName());
+            enableNextNotify(device);
+        }
+
+        @Override
+        public void onNotifyFailed(BleDevice device, int failedCode) {
+            super.onNotifyFailed(device, failedCode);
+            BleLog.e(TAG, "onNotifyFailed: " + device.getBleName() + ", code:" + failedCode);
+            enableNextNotify(device);
         }
     };
 
@@ -313,49 +372,26 @@ public class DeviceInfoActivity extends AppCompatActivity {
                 }
             });
 
-            // 遍历设备所有 service/characteristic，逐个使能 notify/indicate 特征的通知，
+            // 收集所有 notify/indicate 特征，串行使能通知，
             // 以接收任意蓝牙设备上报的全部原始数据（不依赖 MyApplication 中配置的 service uuid）
+            pendingNotifyChars.clear();
             for (BluetoothGattService service : gatt.getServices()) {
                 for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
                     int properties = characteristic.getProperties();
                     if ((properties & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
                             || (properties & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) {
-                        ble.enableNotifyByUuid(device, true, service.getUuid(), characteristic.getUuid(), notifyCallback);
+                        pendingNotifyChars.add(characteristic);
                     }
                 }
             }
+            enableNextNotify(device);
 
-            // 优先查找 fff2 Write Without Response 特征作为发送目标
-            if (writeCharacteristicUuid == null) {
-                for (BluetoothGattService service : gatt.getServices()) {
-                    for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
-                        if (FFF2_UUID.equals(characteristic.getUuid())) {
-                            int properties = characteristic.getProperties();
-                            if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0
-                                    || (properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
-                                writeServiceUuid = service.getUuid();
-                                writeCharacteristicUuid = characteristic.getUuid();
-                                break;
-                            }
-                        }
-                    }
-                    if (writeCharacteristicUuid != null) break;
-                }
+            // 收集发送目标：优先 fff2 Write Without Response 特征，未找到时收集所有可写特征
+            if (writeTargets.isEmpty()) {
+                collectWriteTargets(gatt, FFF2_UUID);
             }
-            // 回退：记录第一个可写特征，供发送功能使用（不依赖 MyApplication 中配置的写特征 uuid）
-            if (writeCharacteristicUuid == null) {
-                for (BluetoothGattService service : gatt.getServices()) {
-                    for (BluetoothGattCharacteristic characteristic : service.getCharacteristics()) {
-                        int properties = characteristic.getProperties();
-                        if ((properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0
-                                || (properties & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
-                            writeServiceUuid = service.getUuid();
-                            writeCharacteristicUuid = characteristic.getUuid();
-                            break;
-                        }
-                    }
-                    if (writeCharacteristicUuid != null) break;
-                }
+            if (writeTargets.isEmpty()) {
+                collectWriteTargets(gatt, null);
             }
         }
 
